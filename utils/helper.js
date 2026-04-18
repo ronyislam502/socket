@@ -86,3 +86,18 @@ export const createOrder = (orderData, orderId, totals) => {
         updateAt:new Date(),
     }
 }
+
+
+export const isValidStatusTransition = (currentStatus, newStatus) => {
+    const validTransitions = {
+        "Pending": ["confirmed", "cancelled"],
+        "confirmed": ["preparing", "cancelled"],
+        "preparing": ["ready", "cancelled"],
+        "ready": ["out for delivery", "cancelled"],
+        "out for delivery": ["delivered"],
+        "delivered": [],
+        "cancelled": [],
+    }
+
+    return validTransitions[currentStatus]?.includes(newStatus) || false;
+}

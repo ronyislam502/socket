@@ -183,7 +183,7 @@ export const orderHandler = (io, socket) => {
         }
     })
 
-    socket.on('acceptOrder', async (data, callback) => {
+    socket.on('confirmedOrder', async (data, callback) => {
         try {
             if (!socket.isAdmin) {
                 return callback({success: false, message:"Unauthorized"})
@@ -230,7 +230,7 @@ export const orderHandler = (io, socket) => {
         }
     })
 
-    socket.on('rejectOrder', async (data, callback) => {
+    socket.on('cancelOrder', async (data, callback) => {
         try {
            if (!socket.isAdmin) {
                 return callback({success: false, message:"Unauthorized"})
@@ -243,34 +243,68 @@ export const orderHandler = (io, socket) => {
                 return callback({ success: false, message: "order not found or cannot be accepted" });
             }
 
-            const result = await ordersCollection.findOneAndUpdate({
+            const result = await ordersCollection.findOneAndUpdate(
+                {
                 orderId: data.orderId
-            }, {
-                $set: {
-                    status: "rejected",
-                    updatedAt: new Date()
+                },
+                {
+                  $set: {
+                        status: "cancelled",
+                        estimateDeliveryTime,
+                        updatedAt: new Date()
                 },
                 $push: {
                     statusHistory: {
-                        status: "rejected",
+                        status: "cancelled",
                         timestamp: new Date(),
                         by: socket.id,
-                        note: data.note || `Order rejected by admin`
+                        note: data.note || `Order cancelled by admin`
                     }
                 }
-            }, {
+                },
+                {
                 returnDocument: "after"
-            });
+                }
+            );
 
-            io.to(`order-${data.orderId}`).emit('orderRejected', { orderId: data.orderId, order: result })
+            io.to(`order-${data.orderId}`).emit('orderCancelled', { orderId: data.orderId, reason:data.reason, order: result })
 
-            socket.to("admin").emit('orderRejectedByAdmin', { orderId: data.orderId, customerName: order.customerName })
+            socket.to("admin").emit('orderCancelledByAdmin', { reason:data.reason })
 
-            callback({ success: true, message: "Order rejected successfully", order: result });
+            callback({ success: true});
 
         } catch (error) {
-            console.error("Error rejecting order:", error);
-            callback({ success: false, message: error.message || "Error rejecting order" });
+            console.error("Error cancelling order:", error);
+            callback({ success: false, message: error.message || "Error cancelling order" });
+        }
+    })
+
+    socket.on('liveStats', async (data, callback) => {
+        try {
+            if (!socket.isAdmin) {
+                return callback({success: false, message:"Unauthorized"})
+            }
+
+            const ordersCollection = getCollection("orders");
+            const today = new Date();
+            today.setHours(0, 0, 0, 0);
+
+            const stats = {
+                totalTodayOrders: await ordersCollection.countDocuments({ createdAt: { $gte: today } }),
+                pending: await ordersCollection.countDocuments({ status: "pending" }),
+                confirmed: await ordersCollection.countDocuments({ status: "confirmed" }),
+                preparing: await ordersCollection.countDocuments({ status: "preparing" }),
+                ready: await ordersCollection.countDocuments({ status: "ready" }),
+                outForDelivery: await ordersCollection.countDocuments({ status: "outForDelivery" }),
+                delivered: await ordersCollection.countDocuments({ status: "delivered" }),
+                cancelled: await ordersCollection.countDocuments({ status: "cancelled" })
+            };
+
+            // io.to("admin").emit('liveStats', { stats });
+            callback({ success: true, stats });
+        } catch (error) {
+            console.error("Error fetching live stats:", error);
+            callback({ success: false, message: error.message || "Error fetching live stats" });
         }
     })
 }

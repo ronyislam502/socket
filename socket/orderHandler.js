@@ -138,6 +138,8 @@ export const orderHandler = (io, socket) => {
         }
     })
 
+    // order update by admin
+
     socket.on('updateOrderStatus', async (data, callback) => {
         try {
             const ordersCollection = getCollection("orders");
@@ -161,15 +163,114 @@ export const orderHandler = (io, socket) => {
                         statusHistory: {
                             status: data.newStatus,
                             timestamp: new Date(),
-                            by: socket.id
+                            by: socket.id,
+                            note:data.note || `status updated to ${data.newStatus} by admin`
                         }
                     }
-                }
+                },
+                {returnDocument: "after"}
             );
+
+            io.to(`order-${data.orderId}`).emit('orderStatusUpdated', { orderId: data.orderId, status: data.newStatus, order: result })
+
+            socket.to("admin").emit('orderStatusUpdated', { orderId: data.orderId, status: data.newStatus, customerName: order.customerName })
+            
             callback({ success: true, message: "Order status updated successfully" });
+            
         } catch (error) {
             console.error("Error updating order status:", error);
             callback({ success: false, message: error.message || "Error updating order status" });
+        }
+    })
+
+    socket.on('acceptOrder', async (data, callback) => {
+        try {
+            if (!socket.isAdmin) {
+                return callback({success: false, message:"Unauthorized"})
+            }
+
+            const ordersCollection = getCollection("orders");
+            const order = await ordersCollection.findOne({ orderId: data.orderId })
+            
+            if (!order || order.status !== "pending") {
+                return callback({ success: false, message: "order not found or cannot be accepted" });
+            }
+
+            const estimateDeliveryTime = data.estimateDeliveryTime || "30m"
+            
+            const result = await ordersCollection.findOneAndUpdate({
+                orderId: data.orderId
+            }, {
+                $set: {
+                    status: "confirmed",
+                    estimateDeliveryTime: estimateDeliveryTime,
+                    updatedAt: new Date()
+                },
+                $push: {
+                    statusHistory: {
+                        status: "confirmed",
+                        timestamp: new Date(),
+                        by: socket.id,
+                        note: data.note || `Order confirmed by admin`
+                    }
+                }
+            }, {
+                returnDocument: "after"
+            });
+
+            io.to(`order-${data.orderId}`).emit('orderConfirmed', { orderId: data.orderId, estimateDeliveryTime, order: result })
+
+            socket.to("admin").emit('orderConfirmedByAdmin', { orderId: data.orderId, customerName: order.customerName, estimateDeliveryTime })
+
+            callback({ success: true, message: "Order confirmed successfully", order: result });
+
+        } catch (error) {
+            console.error("Error confirming order:", error);
+            callback({ success: false, message: error.message || "Error confirming order" });
+        }
+    })
+
+    socket.on('rejectOrder', async (data, callback) => {
+        try {
+           if (!socket.isAdmin) {
+                return callback({success: false, message:"Unauthorized"})
+            }
+
+            const ordersCollection = getCollection("orders");
+            const order = await ordersCollection.findOne({ orderId: data.orderId })
+            
+            if (!order || order.status !== "pending") {
+                return callback({ success: false, message: "order not found or cannot be accepted" });
+            }
+
+            const result = await ordersCollection.findOneAndUpdate({
+                orderId: data.orderId
+            }, {
+                $set: {
+                    status: "rejected",
+                    updatedAt: new Date()
+                },
+                $push: {
+                    statusHistory: {
+                        status: "rejected",
+                        timestamp: new Date(),
+                        by: socket.id,
+                        note: data.note || `Order rejected by admin`
+                    }
+                }
+            }, {
+                returnDocument: "after"
+            });
+
+            io.to(`order-${data.orderId}`).emit('orderRejected', { orderId: data.orderId, order: result })
+
+            socket.to("admin").emit('orderRejectedByAdmin', { orderId: data.orderId, customerName: order.customerName })
+
+            callback({ success: true, message: "Order rejected successfully", order: result });
+
+        } catch (error) {
+            console.error("Error rejecting order:", error);
+            callback({ success: false, message: error.message || "Error rejecting order" });
         }
     })
 }

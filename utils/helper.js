@@ -39,7 +39,7 @@ export const generateOrderId = () => {
     const minute = String(now.getMinutes()).padStart(2, '0');
     const randomNum=Math.floor(Math.random()* 1000).toString().padStart(3, '0')
 
-    const orderid=`ORD-${year}${month}${day}${hour}${minute}${randomNum}`
+    const orderid=`Az-${year}${month}${day}${hour}${minute}${randomNum}`
 
     return orderid;
 }
